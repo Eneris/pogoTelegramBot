@@ -244,7 +244,7 @@ function sendNewPokemon(encounterId, props) {
         ) > distance) return
 
       if (notificationsEnabled) {
-        console.log(`Send pokemon ${encounterId} ${props.pokemon_name} IV ${iv}% - #${props.pokemon_id} notification to ${chatId}`)
+        console.log(`[ ${new Date().toLocaleString()} ] Send pokemon ${encounterId} ${props.pokemon_name} IV ${iv}% - #${props.pokemon_id} notification to ${chatId}`)
 
         let extendedInfo = [
           `${props.pokemon_name} IV: ${iv ? iv : '??'}%`,
