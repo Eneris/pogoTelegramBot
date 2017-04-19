@@ -74,8 +74,6 @@ TelegramBot.onText(/\/location/, (msg/*, match*/) => handleSetLocationCommand(ms
 TelegramBot.onText(/\/distance/, (msg, match) => handleSetLocationDistanceCommand(msg, match, true))
 TelegramBot.onText(/\/distance (.+)/, (msg, match) => handleSetLocationDistanceCommand(msg, match))
 TelegramBot.onText(/\/sendtoall (.+)/, (msg, match) => handleServiceSendToAllCommand(msg, match))
-TelegramBot.onText(/\/iv/, (msg/*,match*/) => handleIVCommand(msg/*,match*/))
-TelegramBot.onText(/\/iv (.+)/, (msg, match) => handleIVCommand(msg, match))
 TelegramBot.on('inline_query', (msg/*, match*/) => handleInlineQuery(msg/*, match*/))
 TelegramBot.on('location', (msg/*, match*/) => handleSetLocationCommand(msg/*, match*/))
 
@@ -141,7 +139,7 @@ function handleFailedChat(chatId, err) {
     }
   } else if (serviceChatId) {
     TelegramBot.sendMessage(serviceChatId, `Failed chat message: \n${err.error_code}: ${err.description}`)
-    chatsRefFiltered.child(chatId).update({
+    chatsRef.child(chatId).update({
       enabled: false,
       status: err.description || ''
     })
@@ -155,68 +153,6 @@ function sendAccessDenied(chatId, replyToId) {
   })
 }
 
-function sendNewPokemon2(encounterId, props) {
-  const disappearTime = moment(props.exp)
-  const disappearIn = moment(moment().diff(disappearTime))
-  const shortDissappearTime = disappearIn.format('mm:ss')
-  const longDissappearTime = disappearTime.format('mm:ss')
-  chats.map((chat, chatId) => {
-    if (chat.watchedPokemons && chat.watchedPokemons[props.id]) {
-      let iv = props.iv || -1
-      let attack = props.a || -1
-      let defense = props.d || -1
-      let stamina = props.s || -1
-      const ivFilter = chat.ivFilter || 0
-
-      const latitude = chat.filterLocation && chat.filterLocation.latitude || 49.195156
-      const longitude = chat.filterLocation && chat.filterLocation.longitude || 16.608267
-      const distance = chat.filterLocation && chat.filterLocation.distance || 3
-      if (getDistance(
-          props.lat,
-          props.lon,
-          latitude,
-          longitude
-        ) > distance) {
-        return
-      }
-
-      if (notificationsEnabled) {
-        const pokemon = Pokemons[props.id]
-        console.log(`Send pokemon ${encounterId} ${pokemon.name} IV ${iv}% - #${props.id} notification to ${chatId}`)
-
-        let extendedInfo = []
-
-        if (iv >= 0) {
-          extendedInfo.push(`${pokemon.name} IV: ${iv}% (${props.a}/${props.d}/${props.s})`)
-        } else {
-          extendedInfo.push(`${pokemon.name} IV: ??%`)
-        }
-
-        if (disappearIn.minutes() < 30 && disappearIn.minutes > 0) {
-          extendedInfo.push(`Time left: ${shortDissappearTime} !!Guessed!!`)
-          //extendedInfo.push(`Disappears at: ${longDissappearTime}`)
-        }
-
-        if (props.m1) extendedInfo.push(`Move 1: ${props.m1}`)
-        if (props.m2) extendedInfo.push(`Move 2: ${props.m2}`)
-
-        // return TelegramBot.sendVenue(
-        //   chatId,
-        //   props.latitude,
-        //   props.longitude,
-        //   `${props.pokemon_name} ${timeRemainining} ${iv ? iv : '??'}%`,
-        //   extendedInfo.join("\n")
-        // ).catch(err => handleFailedChat(chatId, err))
-
-        return TelegramBot.sendMessage(chatId, extendedInfo.join("\n"))
-          .then(() => TelegramBot.sendLocation(chatId, props.lat, props.lon, {"disable_notification": true}))
-          .catch(err => handleFailedChat(chatId, err))
-      }
-    }
-  })
-}
-
-
 // TODO: Theto zkontroluj strukturu dat
 function sendNewPokemon(encounterId, props) {
   // const pokemon = Pokemons[props.pokemon_id]
@@ -224,60 +160,67 @@ function sendNewPokemon(encounterId, props) {
   const disappearIn = new Date(props.disappear_time - (new Date()).getTime())
   const shortDissappearTime = `${disappearIn.getMinutes()}min ${disappearIn.getSeconds()}s`
   const longDissappearTime = `${('0' + disappearTime.getHours()).substr(-2)}:${('0' + disappearTime.getMinutes()).substr(-2)}:${('0' + disappearTime.getSeconds()).substr(-2)}`
-  let attack = props.individual_attack || null
-  let defense = props.individual_defense || null
-  let stamina = props.individual_stamina || null
-  let iv = (attack >= 0 && defense >= 0 && stamina >= 0) ? Math.round((attack + defense + stamina) * 100 / 45) : null
+  let attack = props.individual_attack
+  let defense = props.individual_defense
+  let stamina = props.individual_stamina
+  let iv = (attack >= 0 && defense >= 0 && stamina >= 0) ? Math.round((attack + defense + stamina) * 100 / 45) : undefined
 
   chats.map((chat, chatId) => {
     const minIv = chat.watchedPokemons && chat.watchedPokemons[props.pokemon_id]
-    const ivFilter = chat.ivFilter || 0
-    if (minIv && ((iv >= minIv && iv >= ivFilter) || !iv)) {
-      const latitude = chat.filterLocation && chat.filterLocation.latitude || 49.195156
-      const longitude = chat.filterLocation && chat.filterLocation.longitude || 16.608267
-      const distance = chat.filterLocation && chat.filterLocation.distance || 3
-      if (getDistance(
-          props.latitude,
-          props.longitude,
-          latitude,
-          longitude
-        ) > distance) return
+    if (minIv === undefined || minIv === null) return // Return if record in watchedPokemons doesn't exist
+    if (iv === undefined && minIv > 0) return // return if filter is over 0 and we don't have IV
+    if (iv >= 0 && iv < minIv) return // Return if pokemon has IV and watched higher
 
-      if (notificationsEnabled) {
-        console.log(`[ ${new Date().toLocaleString()} ] Send pokemon ${encounterId} ${props.pokemon_name} IV ${iv}% - #${props.pokemon_id} notification to ${chatId}`)
+    const latitude = chat.filterLocation && chat.filterLocation.latitude || 49.195156
+    const longitude = chat.filterLocation && chat.filterLocation.longitude || 16.608267
+    const distance = chat.filterLocation && chat.filterLocation.distance || 3
 
-        let extendedInfo = [
-          `${props.pokemon_name} IV: ${iv ? iv : '??'}%`,
-          `Time left: ${shortDissappearTime}`,
-          `Disappears at: ${longDissappearTime}`
-        ]
+    if (getDistance(props.latitude, props.longitude, latitude, longitude) > distance) return
 
-        if (iv) {
-          extendedInfo.push(`IV: ${iv ? iv : '??'}% (${props.individual_attack}/${props.individual_defense}/${props.individual_stamina})`)
-        }
+    if (notificationsEnabled) {
+      console.log(`[ ${new Date().toLocaleString()} ] Send pokemon ${encounterId} ${props.pokemon_name} IV ${iv >= 0 ? iv : '??'}% - #${props.pokemon_id} notification to ${chatId}`)
 
-        if (props.move_1) {
-          const move1 = Moves[props.move_1]
-          extendedInfo.push(`Move 1: ${move1.name}(${move1.type})`)
-        }
+      // let extendedInfo = [
+      //   `${props.pokemon_name} IV: ${iv ? iv : '??'}%`,
+      //   `Time left: ${shortDissappearTime}`,
+      //   `Disappears at: ${longDissappearTime}`
+      // ]
 
-        if (props.move_2) {
-          const move2 = Moves[props.move_2]
-          extendedInfo.push(`Move 2: ${move2.name}(${move2.type})`)
-        }
+      // if (iv) {
+      //   extendedInfo.push(`IV: ${iv ? iv : '??'}% (${props.individual_attack}/${props.individual_defense}/${props.individual_stamina})`)
+      // }
 
-        // return TelegramBot.sendVenue(
-        //   chatId,
-        //   props.latitude,
-        //   props.longitude,
-        //   `${props.pokemon_name} ${timeRemainining} ${iv ? iv : '??'}%`,
-        //   extendedInfo.join("\n")
-        // ).catch(err => handleFailedChat(chatId, err))
+      // if (props.move_1) {
+      //   const move1 = Moves[props.move_1]
+      //   extendedInfo.push(`Move 1: ${move1.name}(${move1.type})`)
+      // }
 
-        return TelegramBot.sendMessage(chatId, extendedInfo.join("\n"))
-          .then(() => TelegramBot.sendLocation(chatId, props.latitude, props.longitude, {"disable_notification": true}))
-          .catch(err => handleFailedChat(chatId, err))
+      // if (props.move_2) {
+      //   const move2 = Moves[props.move_2]
+      //   extendedInfo.push(`Move 2: ${move2.name}(${move2.type})`)
+      // }
+
+      let extendedInfo = [
+        longDissappearTime + ` (${shortDissappearTime})`
+      ]
+
+      if (props.move_1 && props.move_2) {
+        const move1 = Moves[props.move_1]
+        const move2 = Moves[props.move_2]
+        extendedInfo.push(`${move1.type} / ${move2.type}`)
       }
+
+      return TelegramBot.sendVenue(
+        chatId,
+        props.latitude,
+        props.longitude,
+        `${props.pokemon_name} ${iv !== undefined ? ` - ${iv}%` : ''}`,
+        extendedInfo.join(' ')
+      ).catch(err => handleFailedChat(chatId, err))
+
+      // return TelegramBot.sendMessage(chatId, extendedInfo.join("\n"))
+      //   .then(() => TelegramBot.sendLocation(chatId, props.latitude, props.longitude, {"disable_notification": true}))
+      //   .catch(err => handleFailedChat(chatId, err))
     }
   })
 }
@@ -301,13 +244,13 @@ function handleWatchCommand(msg, match) {
       return false
     }
 
-    if (false && !pokemon.rarity.match(/Rare/)) {
-      TelegramBot.sendMessage(chatId, `Watching anything less than Rare is not allowed! ${pokemon.name} is ${pokemon.rarity}`, {
-        "reply_to_message_id": msg.message_id,
-        "disable_notification": true
-      })
-      return false
-    }
+    // if (false && !pokemon.rarity.match(/Rare/)) {
+    //   TelegramBot.sendMessage(chatId, `Watching anything less than Rare is not allowed! ${pokemon.name} is ${pokemon.rarity}`, {
+    //     "reply_to_message_id": msg.message_id,
+    //     "disable_notification": true
+    //   })
+    //   return false
+    // }
 
     const chat = chats.get(chatId)
     if (!chat) {
@@ -318,21 +261,22 @@ function handleWatchCommand(msg, match) {
       return
     }
 
-    if (chat.watchedPokemons && chat.watchedPokemons[pokemon.id] !== undefined && chat.watchedPokemons[pokemon.id] === minIv) {
-      TelegramBot.sendMessage(chatId, `Already watching ${pokemon.name}`, {
-        "reply_to_message_id": msg.message_id,
-        "disable_notification": true
-      })
-      return
-    }
+    // if (chat.watchedPokemons && chat.watchedPokemons[pokemon.id] !== undefined && chat.watchedPokemons[pokemon.id] === minIv) {
+    //   TelegramBot.sendMessage(chatId, `Already watching ${pokemon.name}`, {
+    //     "reply_to_message_id": msg.message_id,
+    //     "disable_notification": true
+    //   })
+    //   return
+    // }
 
-    if (chat.watchedPokemons && minIv !== chat.watchedPokemons[pokemon.id]) {
-      TelegramBot.sendMessage(chatId, `${pokemon.name} minimum IV updated to ${minIv}%`, {
+    const savedMinIv = chat.watchedPokemons && chat.watchedPokemons[pokemon.id]
+    if (savedMinIv === undefined || savedMinIv === null || !(savedMinIv >= 0)) {
+      TelegramBot.sendMessage(chatId, `${pokemon.name} added to watch list`, {
         "reply_to_message_id": msg.message_id,
         "disable_notification": true
       })
-    } else {
-      TelegramBot.sendMessage(chatId, `${pokemon.name} added to watch list`, {
+    } else if (minIv !== savedMinIv) {
+      TelegramBot.sendMessage(chatId, `${pokemon.name} minimum IV updated to ${minIv}%`, {
         "reply_to_message_id": msg.message_id,
         "disable_notification": true
       })
@@ -349,7 +293,7 @@ function handleUnwatchCommand(msg, match) {
   const chatId = msg.chat.id
   const pokemon = checkExistingPokemon(match[1])
 
-  if (!pokemon) return
+  if (!pokemon || !chatId) return
 
   checkAccessRights(msg, () => {
     console.log(`Remove notify for ${pokemon.name}(${pokemon.id}) for chat ${chatId}`)
@@ -420,7 +364,7 @@ function handleListCommand(msg) {
     const chat = chats.get(chatId)
     const watchedPokemons = chat.watchedPokemons && Object.keys(chat.watchedPokemons).map(pokemonId => {
         const pokemon = Pokemons[pokemonId]
-        return `#${pokemonId} - ${pokemon.name}`
+        return `#${pokemonId} - ${pokemon.name} - ${chat.watchedPokemons[pokemonId]}%`
       }).join('\n')
     if (watchedPokemons) {
       TelegramBot.sendMessage(chatId, `Here is list of watched pokemons:\n ${watchedPokemons}`, {
@@ -512,32 +456,6 @@ function handleEnableCommand(msg, enable) {
       "disable_notification": true
     })
   }, () => sendAccessDenied(chatId, msg.message_id))
-}
-
-function handleIVCommand(msg, match) {
-  const chatId = msg.chat.id
-
-  if (!match) {
-    const chat = chats.get(chatId)
-    if (chat) {
-      return TelegramBot.sendMessage(chatId, `Your IV filter is set to ${chat.ivFilter || 0}%`, {
-        "reply_to_message_id": msg.message_id,
-        "disable_notification": true
-      })
-    }
-  } else {
-    const ivTreshold = parseInt(match[1])
-    if (!ivTreshold || ivTreshold < 0 || ivTreshold > 100) return
-
-    checkAccessRights(msg, () => {
-      console.log(`Got set IV filter command for ${chatId} to ${ivTreshold}%`)
-      chatsRef.child(chatId).child('ivFilter').set(ivTreshold)
-      TelegramBot.sendMessage(chatId, `Ok... IV filter to ${ivTreshold}%`, {
-        "reply_to_message_id": msg.message_id,
-        "disable_notification": true
-      })
-    }, () => sendAccessDenied(chatId, msg.message_id))
-  }
 }
 
 function handleServiceSendToAllCommand(msg, match) {
