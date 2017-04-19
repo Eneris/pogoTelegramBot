@@ -208,6 +208,7 @@ function sendNewPokemon(encounterId, props) {
         const move1 = Moves[props.move_1]
         const move2 = Moves[props.move_2]
         extendedInfo.push(`${move1.type} / ${move2.type}`)
+        extendedInfo.push(`${move1.name} / ${move2.name}`)
       }
 
       return TelegramBot.sendVenue(
@@ -215,7 +216,7 @@ function sendNewPokemon(encounterId, props) {
         props.latitude,
         props.longitude,
         `${props.pokemon_name} ${iv !== undefined ? ` - ${iv}%` : ''}`,
-        extendedInfo.join(' ')
+        extendedInfo.join('\r\n')
       ).catch(err => handleFailedChat(chatId, err))
 
       // return TelegramBot.sendMessage(chatId, extendedInfo.join("\n"))
