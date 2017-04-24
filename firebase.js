@@ -7,9 +7,9 @@ const app = Firebase.initializeApp({
     client_email: config.FB_CLIENT_EMAIL || process.env.FB_CLIENT_EMAIL
   }),
   databaseURL: config.FB_DATABASE_URL,
-  // databaseAuthVariableOverride: {
-  //   uid: "vps"
-  // }
+  databaseAuthVariableOverride: {
+    uid: "vps"
+  }
 })
 
 export default Firebase.database()
