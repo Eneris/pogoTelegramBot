@@ -12,14 +12,18 @@ let initialLoadCompleted = false
 let notificationsEnabled = false
 
 let chats = fromJS({})
-let serviceChatId = null
+let serviceUserId = null
 
 const onlineRef = fb.ref('/config/bot/status')
 const chatsRef = fb.ref('/config/bot/chats')
 const chatsRefFiltered = fb.ref('/config/bot/chats').orderByChild('enabled').equalTo(true)
 const enabledRef = fb.ref('/config/bot/enabled')
 const pokemonsRef = fb.ref('/data/pokemons').orderByChild('last_modified').startAt((new Date()).valueOf())
-const serviceChatRef = fb.ref('/config/bot/serviceChatId')
+const serviceChatRef = fb.ref('/config/bot/serviceUserId')
+
+const banGifUrl = 'https://media.giphy.com/media/H99r2HtnYs492/giphy.gif'
+const warningGifUrl = 'https://media.giphy.com/media/lqczWksNBr4HK/giphy.gif'
+const nopeGifUrl = 'https://media.giphy.com/media/149t2dI5M5nzvq/giphy.gif'
 
 onlineRef.set('starting')
 onlineRef.onDisconnect().set('offline')
@@ -31,20 +35,21 @@ chatsRefFiltered.once('value', snap => {
   console.log('Initial load complete...', chats.size, 'chats found')
 })
 
-serviceChatRef.on('value', serviceChatIdSnap => serviceChatId = serviceChatIdSnap.val())
+serviceChatRef.on('value', serviceUserIdSnap => serviceUserId = serviceUserIdSnap.val())
 
-chatsRefFiltered.on('child_added', chatsSnap => {
-  console.log("Chat added", chatsSnap.key)
-  chats = chats.set(chatsSnap.key, chatsSnap.val())
-})
-chatsRefFiltered.on('child_changed', chatsSnap => {
-  console.log("Chat changed", chatsSnap.key)
-  chats = chats.set(chatsSnap.key, chatsSnap.val())
-})
-chatsRefFiltered.on('child_removed', chatsSnap => {
-  console.log("Chat removed", chatsSnap.key)
-  chats = chats.remove(chatsSnap.key)
-})
+chatsRefFiltered.on('child_added', chatsSnap => handleChatChange(chatsSnap.key, chatsSnap.val()))
+chatsRefFiltered.on('child_changed', chatsSnap => handleChatChange(chatsSnap.key, chatsSnap.val()))
+chatsRefFiltered.on('child_removed', chatsSnap => handleChatChange(chatsSnap.key))
+
+const handleChatChange = (key, snap) => {
+  if (snap) {
+    console.log("Chat added/changed", key)
+    chats = chats.set(key, snap)
+  } else {
+    console.log("Chat removed", key)
+    chats = chats.remove(key)
+  }
+}
 
 enabledRef.on('value', botEnabledSnap => {
   const enabled = DEBUG ? false : botEnabledSnap.val()
@@ -74,6 +79,10 @@ TelegramBot.onText(/\/location/, (msg/*, match*/) => handleSetLocationCommand(ms
 TelegramBot.onText(/\/distance/, (msg, match) => handleSetLocationDistanceCommand(msg, match, true))
 TelegramBot.onText(/\/distance (.+)/, (msg, match) => handleSetLocationDistanceCommand(msg, match))
 TelegramBot.onText(/\/sendtoall (.+)/, (msg, match) => handleServiceSendToAllCommand(msg, match))
+TelegramBot.onText(/\/ban (.+)/, (msg, match) => handleBanCommand(msg, match))
+TelegramBot.onText(/\/warning (.+)/, (msg, match) => handleWarningCommand(msg, match))
+TelegramBot.onText(/\/chatid (.+)/, (msg, match) => handleGetChatIdCommand(msg, match))
+TelegramBot.onText(/\/trololo (.+)/, (msg, match) => handleTrololoCommand(msg, match))
 TelegramBot.on('inline_query', (msg/*, match*/) => handleInlineQuery(msg/*, match*/))
 TelegramBot.on('location', (msg/*, match*/) => handleSetLocationCommand(msg/*, match*/))
 
@@ -117,6 +126,15 @@ function checkAccessRights(msg, onSuccess, onFailed) {
   const chatId = msg.chat.id
   const userId = msg.from.id
 
+  const chat = chats.get(chatId+'')
+
+  if (msg.from.id === serviceUserId) return onSuccess()
+
+  if (chat && chat.banned) {
+    console.log('Got request from banned user', userId, 'in chat', chatId)
+    return TelegramBot.sendVideo(chatId, nopeGifUrl)
+  }
+
   TelegramBot.getChat(chatId).then(chatProps => {
     if (chatProps.type === 'private') {
       onSuccess()
@@ -137,8 +155,8 @@ function handleFailedChat(chatId, err) {
       updates[chatId] = null
       chatsRef.update(updates)
     }
-  } else if (serviceChatId) {
-    TelegramBot.sendMessage(serviceChatId, `Failed chat message: \n${err.error_code}: ${err.description}`)
+  } else if (serviceUserId) {
+    TelegramBot.sendMessage(serviceUserId, `Failed chat message: \n${err.error_code}: ${err.description}`)
     chatsRef.child(chatId).update({
       enabled: false,
       status: err.description || ''
@@ -165,7 +183,7 @@ function sendNewPokemon(encounterId, props) {
   let stamina = props.individual_stamina
   let iv = (attack >= 0 && defense >= 0 && stamina >= 0) ? Math.round((attack + defense + stamina) * 100 / 45) : undefined
 
-  chats.map((chat, chatId) => {
+  chats.filter(chat => !chat.banned).map((chat, chatId) => {
     const minIv = chat.watchedPokemons && chat.watchedPokemons[props.pokemon_id]
     if (minIv === undefined || minIv === null) return // Return if record in watchedPokemons doesn't exist
     if (iv === undefined && minIv > 0) return // return if filter is over 0 and we don't have IV
@@ -270,6 +288,7 @@ function handleWatchCommand(msg, match) {
     // }
 
     const savedMinIv = chat.watchedPokemons && chat.watchedPokemons[pokemon.id]
+    console.log('got watch', savedMinIv)
     if (savedMinIv === undefined || savedMinIv === null || !(savedMinIv >= 0)) {
       TelegramBot.sendMessage(chatId, `${pokemon.name} added to watch list`, {
         "reply_to_message_id": msg.message_id,
@@ -361,22 +380,25 @@ function handleListCommand(msg) {
   const chatId = msg.chat.id.toString()
   console.log("Got list command for", chatId)
   if (chats.has(chatId)) {
-    const chat = chats.get(chatId)
-    const watchedPokemons = chat.watchedPokemons && Object.keys(chat.watchedPokemons).map(pokemonId => {
-        const pokemon = Pokemons[pokemonId]
-        return `#${pokemonId} - ${pokemon.name} - ${chat.watchedPokemons[pokemonId]}%`
-      }).join('\n')
-    if (watchedPokemons) {
-      TelegramBot.sendMessage(chatId, `Here is list of watched pokemons:\n ${watchedPokemons}`, {
-        "reply_to_message_id": msg.message_id,
-        "disable_notification": true
-      })
-    } else {
-      TelegramBot.sendMessage(chatId, 'List is empty... add some by "/watch ID" command', {
-        "reply_to_message_id": msg.message_id,
-        "disable_notification": true
-      })
-    }
+    checkAccessRights(msg, () => {
+      const chat = chats.get(chatId)
+      const watchedPokemons = chat.watchedPokemons && Object.keys(chat.watchedPokemons).map(pokemonId => {
+          const pokemon = Pokemons[pokemonId]
+          if (!pokemon) return ''
+          return `#${pokemonId} - ${pokemon.name} - ${chat.watchedPokemons[pokemonId]}%`
+        }).join('\n')
+      if (watchedPokemons) {
+        TelegramBot.sendMessage(chatId, `Here is list of watched pokemons:\n ${watchedPokemons}`, {
+          "reply_to_message_id": msg.message_id,
+          "disable_notification": true
+        })
+      } else {
+        TelegramBot.sendMessage(chatId, 'List is empty... add some by "/watch ID" command', {
+          "reply_to_message_id": msg.message_id,
+          "disable_notification": true
+        })
+      }
+    })
   }
 }
 
@@ -458,15 +480,93 @@ function handleEnableCommand(msg, enable) {
   }, () => sendAccessDenied(chatId, msg.message_id))
 }
 
+function handleGetChatIdCommand(msg, match) {
+  const chatId = msg.chat.id
+  if (chatId == serviceUserId) {
+    const chatFound = chats.find(chat => chat.username && chat.username.match(match[1]))
+    if (chatFound) {
+      TelegramBot.sendMessage(chatId, `${match[1]} is ${chatFound.id}`)
+    }
+  }
+}
+
+function handleTrololoCommand(msg, match) {
+  if (msg.from.id !== serviceUserId) return
+
+  const data = match[1].split(' ')
+  const movesKeys = Object.keys(Moves)
+  const chatId = data[0]
+  const latitude = data[1]
+  const longitude = data[2]
+
+  const chat = chats.get(chatId)
+
+  if (!chat.watchedPokemons) {
+    return
+  }
+
+  const possiblePokemons = Object.keys(chat.watchedPokemons)
+  const pokemonId = possiblePokemons[Math.floor(Math.random() * (possiblePokemons.length - 1)) + 1]
+  const minIv = chat.watchedPokemons[pokemonId]
+
+  const timeFrame = ([15, 30, 45, 60])[Math.floor(Math.random() * 3)]
+  const disappear_time = (new Date()).getTime() + ((timeFrame * 60 - Math.floor(Math.random() * 180)) * 1000)
+
+  const attack = Math.floor(Math.random() * 15) + 1
+  const defense = Math.floor(Math.random() * 15) + 1
+  const stamina = Math.floor(Math.random() * 15) + 1
+  const move1 = Moves[movesKeys[Math.floor(Math.random() * (movesKeys.length - 1))]]
+  const move2 = Moves[movesKeys[Math.floor(Math.random() * (movesKeys.length - 1))]]
+  const pokemon = Pokemons[pokemonId]
+  let iv = Math.round((attack + defense + stamina) * 100 / 45)
+
+  iv = iv < minIv ? (Math.floor(Math.random() * 100) + minIv) : iv
+
+  const disappearTime = new Date(disappear_time)
+  const disappearIn = new Date(disappear_time - (new Date()).getTime())
+  const shortDissappearTime = `${disappearIn.getMinutes()}min ${disappearIn.getSeconds()}s`
+  const longDissappearTime = `${('0' + disappearTime.getHours()).substr(-2)}:${('0' + disappearTime.getMinutes()).substr(-2)}:${('0' + disappearTime.getSeconds()).substr(-2)}`
+
+  let extendedInfo = [
+    longDissappearTime + ` (${shortDissappearTime})`,
+    `${move1.type} / ${move2.type}`
+  ]
+
+  console.log(`[ ${new Date().toLocaleString()} ] Sending trololo to ${chatId}, pokemon: ${pokemon.name}`)
+
+  return TelegramBot.sendVenue(
+    chatId,
+    latitude,
+    longitude,
+    `${pokemon.name} ${iv}%`,
+    extendedInfo.join(' ')
+  ).catch(err => handleFailedChat(chatId, err))
+}
+
 function handleServiceSendToAllCommand(msg, match) {
   const chatId = msg.chat.id
-  if (chatId == serviceChatId) {
-    chats.map((chat, chatId) => {
-      // if (chat.enabled) {
-        TelegramBot.sendMessage(chatId, match[1])
-      // }
+  if (msg.from.id !== serviceUserId) return
+  chats
+    .filter(chat => chat.enabled)
+    .map((chat, chatId) => {
+      TelegramBot.sendMessage(chatId, match[1])
     })
+}
+
+function handleBanCommand(msg, match) {
+  if (msg.from.id !== serviceUserId) return
+  const id = match[1]
+  TelegramBot.sendVideo(id, banGifUrl)
+  console.log(id, 'got an Ban gif')
+  if (!id.match('@')) {
+    chatsRef.child(id).child('banned').set(true)
   }
+}
+function handleWarningCommand(msg, match) {
+  if (msg.from.id !== serviceUserId) return
+  const id = match[1]
+  TelegramBot.sendVideo(id, warningGifUrl)
+  console.log(id, 'got an Warning gif')
 }
 
 function handleInlineQuery(msg) {
