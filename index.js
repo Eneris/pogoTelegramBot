@@ -442,10 +442,7 @@ function handleSetLocationDistanceCommand(msg, match, isGetter) {
     const chat = chats.get(chatId)
 
     if (isGetter) {
-      if (chat.filterLocation && chat.filterLocation.distance)
-        return TelegramBot.sendMessage(chatId, `Your current filter distance is ${chat.filterLocation.distance}km`)
-      else
-        return TelegramBot.sendMessage(chatId, `Your filter distance is to infinity and beyond...`)
+      return TelegramBot.sendMessage(chatId, `Your current filter distance is ${chat.filterLocation && chat.filterLocation.distance || 3}km`)
     } else {
       const distance = parseFloat(match[1])
       console.log(`Got set distance command for ${chatId} to ${distance}km`)
