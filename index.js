@@ -13,6 +13,7 @@ let notificationsEnabled = false
 
 let chats = fromJS({})
 let serviceUserId = null
+let serviceChat = null
 
 const onlineRef = fb.ref('/config/bot/status')
 const chatsRef = fb.ref('/config/bot/chats')
@@ -20,6 +21,7 @@ const chatsRefFiltered = fb.ref('/config/bot/chats').orderByChild('enabled').equ
 const enabledRef = fb.ref('/config/bot/enabled')
 const pokemonsRef = fb.ref('/data/pokemons').orderByChild('last_modified').startAt((new Date()).valueOf())
 const serviceChatRef = fb.ref('/config/bot/serviceUserId')
+const serviceUserRef = fb.ref('/config/bot/serviceUserId')
 
 const banGifUrl = 'https://media.giphy.com/media/H99r2HtnYs492/giphy.gif'
 const warningGifUrl = 'https://media.giphy.com/media/lqczWksNBr4HK/giphy.gif'
@@ -35,7 +37,8 @@ chatsRefFiltered.once('value', snap => {
   console.log('Initial load complete...', chats.size, 'chats found')
 })
 
-serviceChatRef.on('value', serviceUserIdSnap => serviceUserId = serviceUserIdSnap.val())
+serviceUserRef.on('value', serviceUserIdSnap => serviceUserId = serviceUserIdSnap.val())
+serviceChatRef.on('value', serviceChatSnap => serviceChat = serviceChatSnap.val())
 
 chatsRefFiltered.on('child_added', chatsSnap => handleChatChange(chatsSnap.key, chatsSnap.val()))
 chatsRefFiltered.on('child_changed', chatsSnap => handleChatChange(chatsSnap.key, chatsSnap.val()))
@@ -57,17 +60,31 @@ enabledRef.on('value', botEnabledSnap => {
   notificationsEnabled = enabled
 })
 
-// TODO: theta Změnit uzel (Do "pokealarm" zapisuje PokeTrack)
+let lastPokemonAdded = new Date()
+
+
 pokemonsRef.on('child_added', pokemonSnap => {
   if (!initialLoadCompleted && true) return
 
+  lastPokemonAdded = new Date()
+
   const props = pokemonSnap.val()
   const key = pokemonSnap.key
-  sendNewPokemon(key, props) // RocketMap
-  // sendNewPokemon2(key, props) // PokeTrack
+  sendNewPokemon(key, props)
+
 })
 
-// Message listeners
+setInterval(() => {
+  const currentTime = new Date()
+  const deltaTime = currentTime.valueOf() - lastPokemonAdded.valueOf()
+  console.log('[' + (new Date()).toLocaleString() + '] Last feed ' + deltaTime / 1000 / 60 + ' minutes ago')
+  if (deltaTime > 30 * 60 * 1000) {
+
+    TelegramBot.sendMessage(serviceChat, "WARNING!: Data feed may be broken! Bot hasn't got any data for longer than 30 minutes. Last " + lastPokemonAdded.toLocaleTimeString())
+  }
+}, 10 * 60 * 1000)
+
+
 TelegramBot.onText(/\/watch( .+){1,2}/, (msg, match) => handleWatchCommand(msg, match))
 TelegramBot.onText(/\/unwatch (.+)/, (msg, match) => handleUnwatchCommand(msg, match))
 TelegramBot.onText(/\/start/, (msg/*, match*/) => handleStartCommand(msg/*, match*/))
@@ -86,10 +103,10 @@ TelegramBot.onText(/\/trololo (.+)/, (msg, match) => handleTrololoCommand(msg, m
 TelegramBot.on('inline_query', (msg/*, match*/) => handleInlineQuery(msg/*, match*/))
 TelegramBot.on('location', (msg/*, match*/) => handleSetLocationCommand(msg/*, match*/))
 
-// Functions
+
 function getDistance(lat1, lon1, lat2, lon2) {
-  let R = 6371; // Radius of the earth in km
-  let dLat = (lat2 - lat1) * Math.PI / 180;  // deg2rad below
+  let R = 6371;
+  let dLat = (lat2 - lat1) * Math.PI / 180;
   let dLon = (lon2 - lon1) * Math.PI / 180;
   let a =
     0.5 - Math.cos(dLat) / 2 +
@@ -126,7 +143,7 @@ function checkAccessRights(msg, onSuccess, onFailed) {
   const chatId = msg.chat.id
   const userId = msg.from.id
 
-  const chat = chats.get(chatId+'')
+  const chat = chats.get(chatId + '')
 
   if (msg.from.id === serviceUserId) return onSuccess()
 
@@ -171,9 +188,9 @@ function sendAccessDenied(chatId, replyToId) {
   })
 }
 
-// TODO: Theto zkontroluj strukturu dat
+
 function sendNewPokemon(encounterId, props) {
-  // const pokemon = Pokemons[props.pokemon_id]
+
   const disappearTime = new Date(props.disappear_time)
   const disappearIn = new Date(props.disappear_time - (new Date()).getTime())
   const shortDissappearTime = `${disappearIn.getMinutes()}min ${disappearIn.getSeconds()}s`
@@ -185,9 +202,9 @@ function sendNewPokemon(encounterId, props) {
 
   chats.filter(chat => !chat.banned).map((chat, chatId) => {
     const minIv = chat.watchedPokemons && chat.watchedPokemons[props.pokemon_id]
-    if (minIv === undefined || minIv === null) return // Return if record in watchedPokemons doesn't exist
-    if (iv === undefined && minIv > 0) return // return if filter is over 0 and we don't have IV
-    if (iv >= 0 && iv < minIv) return // Return if pokemon has IV and watched higher
+    if (minIv === undefined || minIv === null) return
+    if (iv === undefined && minIv > 0) return
+    if (iv >= 0 && iv < minIv) return
 
     const latitude = chat.filterLocation && chat.filterLocation.latitude || 49.195156
     const longitude = chat.filterLocation && chat.filterLocation.longitude || 16.608267
@@ -198,25 +215,6 @@ function sendNewPokemon(encounterId, props) {
     if (notificationsEnabled) {
       console.log(`[ ${new Date().toLocaleString()} ] Send pokemon ${encounterId} ${props.pokemon_name} IV ${iv >= 0 ? iv : '??'}% - #${props.pokemon_id} notification to ${chatId}`)
 
-      // let extendedInfo = [
-      //   `${props.pokemon_name} IV: ${iv ? iv : '??'}%`,
-      //   `Time left: ${shortDissappearTime}`,
-      //   `Disappears at: ${longDissappearTime}`
-      // ]
-
-      // if (iv) {
-      //   extendedInfo.push(`IV: ${iv ? iv : '??'}% (${props.individual_attack}/${props.individual_defense}/${props.individual_stamina})`)
-      // }
-
-      // if (props.move_1) {
-      //   const move1 = Moves[props.move_1]
-      //   extendedInfo.push(`Move 1: ${move1.name}(${move1.type})`)
-      // }
-
-      // if (props.move_2) {
-      //   const move2 = Moves[props.move_2]
-      //   extendedInfo.push(`Move 2: ${move2.name}(${move2.type})`)
-      // }
 
       let extendedInfo = [
         longDissappearTime + ` (${shortDissappearTime})`
@@ -236,20 +234,17 @@ function sendNewPokemon(encounterId, props) {
         extendedInfo.join(' ')
       ).catch(err => handleFailedChat(chatId, err))
 
-      // return TelegramBot.sendMessage(chatId, extendedInfo.join("\n"))
-      //   .then(() => TelegramBot.sendLocation(chatId, props.latitude, props.longitude, {"disable_notification": true}))
-      //   .catch(err => handleFailedChat(chatId, err))
+
     }
   })
 }
 
-// Command handlers
 
 function handleWatchCommand(msg, match) {
   const chatId = msg.chat.id.toString()
 
   const params = match[1].trim().split(' ').map(item => parseInt(item))
-  // Pokemon iv == params[2]
+
 
   checkAccessRights(msg, () => {
     const pokemon = isExistingPokemon(params[0])
@@ -262,13 +257,6 @@ function handleWatchCommand(msg, match) {
       return false
     }
 
-    // if (false && !pokemon.rarity.match(/Rare/)) {
-    //   TelegramBot.sendMessage(chatId, `Watching anything less than Rare is not allowed! ${pokemon.name} is ${pokemon.rarity}`, {
-    //     "reply_to_message_id": msg.message_id,
-    //     "disable_notification": true
-    //   })
-    //   return false
-    // }
 
     const chat = chats.get(chatId)
     if (!chat) {
@@ -279,13 +267,6 @@ function handleWatchCommand(msg, match) {
       return
     }
 
-    // if (chat.watchedPokemons && chat.watchedPokemons[pokemon.id] !== undefined && chat.watchedPokemons[pokemon.id] === minIv) {
-    //   TelegramBot.sendMessage(chatId, `Already watching ${pokemon.name}`, {
-    //     "reply_to_message_id": msg.message_id,
-    //     "disable_notification": true
-    //   })
-    //   return
-    // }
 
     const savedMinIv = chat.watchedPokemons && chat.watchedPokemons[pokemon.id]
     console.log('got watch', savedMinIv)
@@ -362,9 +343,9 @@ function handleStopCommand(msg) {
         })
       } else {
         TelegramBot.sendMessage(chatId, 'I am out... bye', {
-            "reply_to_message_id": msg.message_id,
-            "disable_notification": true
-          })
+          "reply_to_message_id": msg.message_id,
+          "disable_notification": true
+        })
           .then(() => TelegramBot.leaveChat(chatId))
       }
     })
@@ -432,7 +413,10 @@ function handleSetLocationCommand(msg, match) {
 
     location.distance = (chat.filterLocation && chat.filterLocation.distance) || 1
     chatsRef.child(chatId).child('filterLocation').set(location)
-    TelegramBot.sendMessage(chatId, "Location saved", {"reply_to_message_id": msg.message_id, "disable_notification": true})
+    TelegramBot.sendMessage(chatId, "Location saved", {
+      "reply_to_message_id": msg.message_id,
+      "disable_notification": true
+    })
   }, () => sendAccessDenied(chatId, msg.message_id))
 }
 
