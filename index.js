@@ -7,7 +7,7 @@ import fb from './firebase'
 import {fromJS} from 'immutable'
 
 const DEBUG = process.env.DEBUG || config.DEBUG
-const MAPS_API_KEY = process.env.MAPS_API_KEY_ENCODED || config.MAPS_API_KEY_ENCODED
+const MAPS_API_KEY = process.env.MAPS_API_KEY || config.MAPS_API_KEY
 
 let initialLoadCompleted = false
 let notificationsEnabled = false
@@ -205,6 +205,14 @@ function sendNewPokemon(encounterId, props) {
   const sideLength = 400
   const markerColor = 'red'
   const location = props.latitude + ',' + props.longitude
+  const message =
+    `<b>${props.pokemon_name}</b> - \#${props.pokemon_id}\n` +
+    `<b>Disappears</b>: ${longDissappearTime} (${shortDissappearTime})\n` +
+    (iv >= 0 ? `<b>IV</b>: ${iv}\n` : '') +
+    (move1 && move1 !== null ? `<b>Move 1</b>: ${move1.name} (${move1.type})\n` : '') +
+    (move2 && move2 !== null ? `<b>Move 2</b>: ${move2.name} (${move2.type})\n` : '') +
+    `<a href="https://maps.googleapis.com/maps/api/staticmap?center=${location}&zoom=${zoom}&size=${sideLength}x${sideLength}&markers=color:${markerColor}|${location}&key=${MAPS_API_KEY}">&#8205;</a>` +
+    `<b>Maps</b>: <a href="http://maps.google.com/maps?q=${location}">Google</a> | <a href="http://maps.apple.com/?q=${location}">iOS</a> | <a href="http://waze.to/?ll=${location}">Waze</a>\n`
 
   chats.filter(chat => !chat.banned).map((chat, chatId) => {
     const minIv = chat.watchedPokemons && chat.watchedPokemons[props.pokemon_id]
@@ -222,14 +230,12 @@ function sendNewPokemon(encounterId, props) {
       console.log(`[ ${new Date().toLocaleString()} ] Send pokemon ${encounterId} ${props.pokemon_name} IV ${iv >= 0 ? iv : '??'}% - #${props.pokemon_id} notification to ${chatId}`)
       return TelegramBot.sendMessage(
         chatId,
-        `*${props.pokemon_name}* - \#${props.pokemon_id}  \n` +
-        `*Disappears*: ${longDissappearTime} (${shortDissappearTime})  \n` +
-        (iv >= 0 ? `*IV*: ${iv} \n` : '') +
-        (move1 && move1 !== null ? `*Move 1*: ${move1.name} (${move1.type}) \n` : '') +
-        (move2 && move2 !== null ? `*Move 2*: ${move2.name} (${move2.type}) \n` : '') +
-        `*Maps*: [Google](http://maps.google.com/maps?q=${location}) | [iOS](http://maps.apple.com/?q=${location}) | [Waze](http://waze.to/?ll=${location})` +
-        `[.](https://maps.googleapis.com/maps/api/staticmap?center=${location}&zoom=${13}&size=${sideLength}x${sideLength}&markers=color:${markerColor}|${location}&key=AIzaSyBLGL%2D10Yvbk2L9y90Z0rRXLFzRmz%5F2WVA)`,
-        {parse_mode: "markdown"})
+        message,
+        {
+          parse_mode: "html",
+          disable_web_page_preview: false,
+          disable_notification: false
+        })
     }
   })
 }
