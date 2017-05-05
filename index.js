@@ -100,7 +100,7 @@ TelegramBot.onText(/\/sendtoall (.+)/, (msg, match) => handleServiceSendToAllCom
 TelegramBot.onText(/\/ban (.+)/, (msg, match) => handleBanCommand(msg, match))
 TelegramBot.onText(/\/warning (.+)/, (msg, match) => handleWarningCommand(msg, match))
 TelegramBot.onText(/\/chatid (.+)/, (msg, match) => handleGetChatIdCommand(msg, match))
-TelegramBot.onText(/\/trololo (.+)/, (msg, match) => handleTrololoCommand(msg, match))
+// TelegramBot.onText(/\/trololo (.+)/, (msg, match) => handleTrololoCommand(msg, match))
 TelegramBot.on('inline_query', (msg/*, match*/) => handleInlineQuery(msg/*, match*/))
 TelegramBot.on('location', (msg/*, match*/) => handleSetLocationCommand(msg/*, match*/))
 
@@ -423,7 +423,7 @@ function handleSetLocationDistanceCommand(msg, match, isGetter) {
     if (isGetter) {
       return TelegramBot.sendMessage(chatId, `Your current filter distance is ${chat.filterLocation && chat.filterLocation.distance || 3}km`)
     } else {
-      const distance = parseFloat(match[1])
+      const distance = Math.min(parseFloat(match[1]), 20)
       console.log(`Got set distance command for ${chatId} to ${distance}km`)
       if (!distance || distance < 0)
         return TelegramBot.sendMessage(chatId, "Sorry but this is not valid input")
@@ -465,59 +465,59 @@ function handleGetChatIdCommand(msg, match) {
     }
   }
 }
-
-function handleTrololoCommand(msg, match) {
-  if (msg.from.id !== serviceUserId) return
-
-  const data = match[1].split(' ')
-  const movesKeys = Object.keys(Moves)
-  const chatId = data[0]
-  const latitude = data[1]
-  const longitude = data[2]
-
-  const chat = chats.get(chatId)
-
-  if (!chat.watchedPokemons) {
-    return
-  }
-
-  const possiblePokemons = Object.keys(chat.watchedPokemons)
-  const pokemonId = possiblePokemons[Math.floor(Math.random() * (possiblePokemons.length - 1)) + 1]
-  const minIv = chat.watchedPokemons[pokemonId]
-
-  const timeFrame = ([15, 30, 45, 60])[Math.floor(Math.random() * 3)]
-  const disappear_time = (new Date()).getTime() + ((timeFrame * 60 - Math.floor(Math.random() * 180)) * 1000)
-
-  const attack = Math.floor(Math.random() * 15) + 1
-  const defense = Math.floor(Math.random() * 15) + 1
-  const stamina = Math.floor(Math.random() * 15) + 1
-  const move1 = Moves[movesKeys[Math.floor(Math.random() * (movesKeys.length - 1))]]
-  const move2 = Moves[movesKeys[Math.floor(Math.random() * (movesKeys.length - 1))]]
-  const pokemon = Pokemons[pokemonId]
-  let iv = Math.round((attack + defense + stamina) * 100 / 45)
-
-  iv = iv < minIv ? (Math.floor(Math.random() * 100) + minIv) : iv
-
-  const disappearTime = new Date(disappear_time)
-  const disappearIn = new Date(disappear_time - (new Date()).getTime())
-  const shortDissappearTime = `${disappearIn.getMinutes()}min ${disappearIn.getSeconds()}s`
-  const longDissappearTime = `${('0' + disappearTime.getHours()).substr(-2)}:${('0' + disappearTime.getMinutes()).substr(-2)}:${('0' + disappearTime.getSeconds()).substr(-2)}`
-
-  let extendedInfo = [
-    longDissappearTime + ` (${shortDissappearTime})`,
-    `${move1.type} / ${move2.type}`
-  ]
-
-  console.log(`[ ${new Date().toLocaleString()} ] Sending trololo to ${chatId}, pokemon: ${pokemon.name}`)
-
-  return TelegramBot.sendVenue(
-    chatId,
-    latitude,
-    longitude,
-    `${pokemon.name} ${iv}%`,
-    extendedInfo.join(' ')
-  ).catch(err => handleFailedChat(chatId, err))
-}
+//
+// function handleTrololoCommand(msg, match) {
+//   if (msg.from.id !== serviceUserId) return
+//
+//   const data = match[1].split(' ')
+//   const movesKeys = Object.keys(Moves)
+//   const chatId = data[0]
+//   const latitude = data[1]
+//   const longitude = data[2]
+//
+//   const chat = chats.get(chatId)
+//
+//   if (!chat.watchedPokemons) {
+//     return
+//   }
+//
+//   const possiblePokemons = Object.keys(chat.watchedPokemons)
+//   const pokemonId = possiblePokemons[Math.floor(Math.random() * (possiblePokemons.length - 1)) + 1]
+//   const minIv = chat.watchedPokemons[pokemonId]
+//
+//   const timeFrame = ([15, 30, 45, 60])[Math.floor(Math.random() * 3)]
+//   const disappear_time = (new Date()).getTime() + ((timeFrame * 60 - Math.floor(Math.random() * 180)) * 1000)
+//
+//   const attack = Math.floor(Math.random() * 15) + 1
+//   const defense = Math.floor(Math.random() * 15) + 1
+//   const stamina = Math.floor(Math.random() * 15) + 1
+//   const move1 = Moves[movesKeys[Math.floor(Math.random() * (movesKeys.length - 1))]]
+//   const move2 = Moves[movesKeys[Math.floor(Math.random() * (movesKeys.length - 1))]]
+//   const pokemon = Pokemons[pokemonId]
+//   let iv = Math.round((attack + defense + stamina) * 100 / 45)
+//
+//   iv = iv < minIv ? (Math.floor(Math.random() * 100) + minIv) : iv
+//
+//   const disappearTime = new Date(disappear_time)
+//   const disappearIn = new Date(disappear_time - (new Date()).getTime())
+//   const shortDissappearTime = `${disappearIn.getMinutes()}min ${disappearIn.getSeconds()}s`
+//   const longDissappearTime = `${('0' + disappearTime.getHours()).substr(-2)}:${('0' + disappearTime.getMinutes()).substr(-2)}:${('0' + disappearTime.getSeconds()).substr(-2)}`
+//
+//   let extendedInfo = [
+//     longDissappearTime + ` (${shortDissappearTime})`,
+//     `${move1.type} / ${move2.type}`
+//   ]
+//
+//   console.log(`[ ${new Date().toLocaleString()} ] Sending trololo to ${chatId}, pokemon: ${pokemon.name}`)
+//
+//   return TelegramBot.sendVenue(
+//     chatId,
+//     latitude,
+//     longitude,
+//     `${pokemon.name} ${iv}%`,
+//     extendedInfo.join(' ')
+//   ).catch(err => handleFailedChat(chatId, err))
+// }
 
 function handleServiceSendToAllCommand(msg, match) {
   const chatId = msg.chat.id
