@@ -7,6 +7,7 @@ import fb from './firebase'
 import {fromJS} from 'immutable'
 
 const DEBUG = process.env.DEBUG || config.DEBUG
+const MAPS_API_KEY = process.env.MAPS_API_KEY_ENCODED || config.MAPS_API_KEY_ENCODED
 
 let initialLoadCompleted = false
 let notificationsEnabled = false
@@ -190,7 +191,6 @@ function sendAccessDenied(chatId, replyToId) {
 
 
 function sendNewPokemon(encounterId, props) {
-
   const disappearTime = new Date(props.disappear_time)
   const disappearIn = new Date(props.disappear_time - (new Date()).getTime())
   const shortDissappearTime = `${disappearIn.getMinutes()}min ${disappearIn.getSeconds()}s`
@@ -199,6 +199,12 @@ function sendNewPokemon(encounterId, props) {
   let defense = props.individual_defense
   let stamina = props.individual_stamina
   let iv = (attack >= 0 && defense >= 0 && stamina >= 0) ? Math.round((attack + defense + stamina) * 100 / 45) : undefined
+  const move1 = props.move_1 ? Moves[props.move_1] : null
+  const move2 = props.move_2 ? Moves[props.move_2] : null
+  const zoom = 15
+  const sideLength = 400
+  const markerColor = 'red'
+  const location = props.latitude + ',' + props.longitude
 
   chats.filter(chat => !chat.banned).map((chat, chatId) => {
     const minIv = chat.watchedPokemons && chat.watchedPokemons[props.pokemon_id]
@@ -214,27 +220,16 @@ function sendNewPokemon(encounterId, props) {
 
     if (notificationsEnabled) {
       console.log(`[ ${new Date().toLocaleString()} ] Send pokemon ${encounterId} ${props.pokemon_name} IV ${iv >= 0 ? iv : '??'}% - #${props.pokemon_id} notification to ${chatId}`)
-
-
-      let extendedInfo = [
-        longDissappearTime + ` (${shortDissappearTime})`
-      ]
-
-      if (props.move_1 && props.move_2) {
-        const move1 = Moves[props.move_1]
-        const move2 = Moves[props.move_2]
-        extendedInfo.push(`${move1.type} / ${move2.type}`)
-      }
-
-      return TelegramBot.sendVenue(
+      return TelegramBot.sendMessage(
         chatId,
-        props.latitude,
-        props.longitude,
-        `${props.pokemon_name} ${iv !== undefined ? ` - ${iv}%` : ''}`,
-        extendedInfo.join(' ')
-      ).catch(err => handleFailedChat(chatId, err))
-
-
+        `*${props.pokemon_name}* - \#${props.pokemon_id}  \n` +
+        `*Disappears*: ${longDissappearTime} (${shortDissappearTime})  \n` +
+        (iv >= 0 ? `*IV*: ${iv} \n` : '') +
+        (move1 && move1 !== null ? `*Move 1*: ${move1.name} (${move1.type}) \n` : '') +
+        (move2 && move2 !== null ? `*Move 2*: ${move2.name} (${move2.type}) \n` : '') +
+        `*Maps*: [Google](http://maps.google.com/maps?q=${location}) | [iOS](http://maps.apple.com/?q=${location}) | [Waze](http://waze.to/?ll=${location})` +
+        `[.](https://maps.googleapis.com/maps/api/staticmap?center=${location}&zoom=${13}&size=${sideLength}x${sideLength}&markers=color:${markerColor}|${location}&key=AIzaSyBLGL%2D10Yvbk2L9y90Z0rRXLFzRmz%5F2WVA)`,
+        {parse_mode: "markdown"})
     }
   })
 }
